@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ-панель | ArtemScript</title>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <script src="email-service.js"></script>
+    <style>
+        /* --- CSS Переменные для темы --- */
+        :root {
+            --bg-body: #1a1a2e;
+            --bg-card: rgba(255, 255, 255, 0.05);
+            --bg-input: rgba(255, 255, 255, 0.1);
+            --text-main: #fff;
+            --text-sec: #aaa;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Светлая тема */
+        body.light-theme {
+            --bg-body: #f0f2f5;
+            --bg-card: #ffffff;
+            --bg-input: #f7f9fc;
+            --text-main: #2c3e50;
+            --text-sec: #7f8c8d;
+            --border-color: #e0e0e0;
+            --shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Переопределяем стили с использованием переменных */
+        body { background: var(--bg-body); color: var(--text-main); transition: background 0.3s, color 0.3s; }
+        .login-box, .order-card, .modal-box, .chat-box { background: var(--bg-card); box-shadow: var(--shadow); }
+        .order-card { border: 1px solid var(--border-color); }
+        
+        .form-group input, .form-group textarea, .chat-input input, .search-input { 
+            background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-color); 
+        }
+        
+        .order-info label { color: var(--text-sec); }
+        
+        /* --- Новые элементы управления --- */
+        .header-controls { display: flex; gap: 10px; align-items: center; }
+        
+        .search-wrapper { position: relative; }
+        .search-input {
+            padding: 10px 15px 10px 40px;
+            border-radius: 8px;
+            width: 250px;
+            transition: 0.3s;
+        }
+        .search-input:focus { width: 300px; border-color: #f39c12; outline: none; }
+        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); opacity: 0.5; }
+        
+        .btn-icon {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: var(--text-main);
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: 0.3s;
+            font-size: 18px;
+        }
+        .btn-icon:hover { background: #f39c12; color: #fff; transform: scale(1.05); }
+
+        /* ... остальные стили ... */
+    </style>
+</head>
+<body>
+    <!-- Экран входа -->
+    <div class="login-screen" id="loginScreen">
+        <div class="login-box">
+            <h2>🔐 Админ-панель</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label>Логин</label>
+                    <input type="text" id="login" placeholder="admin" required>
+                </div>
+                <div class="form-group">
+                    <label>Пароль</label>
+                    <input type="password" id="password" placeholder="••••••" required>
+                </div>
+                <button type="submit" class="btn-login">Войти</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Админ-панель -->
+    <div class="admin-screen" id="adminScreen">
+        <div class="header">
+            <h1>📟 Планшет-админка</h1>
+            
+            <div class="header-controls">
+                <!-- Поиск -->
+                <div class="search-wrapper">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" class="search-input" id="searchInput" placeholder="Поиск (ник, почта, ID)...">
+                </div>
+                
+                <!-- Экспорт -->
+                <button class="btn-icon" onclick="exportData()" title="Экспорт всех заявок">💾</button>
+                
+                <!-- Смена темы -->
+                <button class="btn-icon" onclick="toggleTheme()" title="Сменить тему">🌓</button>
+                
+                <button class="btn-logout" onclick="logout()">🚪 Выход</button>
+            </div>
+        </div>
+        
+        <div class="instruction" id="instruction">
+            <button class="instruction-close" onclick="hideInstruction()">✕</button>
+            <h4>📖 Инструкция</h4>
+            <p>• <strong>Новые</strong> — поступившие заявки<br>
+            • <strong>В работе</strong> — принятые заявки<br>
+            • <strong>Выполнено</strong> — завершённые заявки<br>
+            • <strong>Отказ</strong> — отклонённые вами<br>
+            • <strong>Отказ клиента</strong> — отменённые клиентами</p>
+        </div>
+        
+        <div class="auto-refresh" id="autoRefreshIndicator">
+            <div class="online-indicator"></div>
+            <span>Автообновление активно (каждые 3 сек)</span>
+        </div>
+        
+        <div class="folders">
+            <div class="folder active" onclick="filterOrders('all', this)">
+                <h3 id="count-all">0</h3>
+                <span>Все</span>
+            </div>
+            <div class="folder" onclick="filterOrders('new', this)">
+                <h3 id="count-new">0</h3>
+                <span>Новые</span>
+            </div>
+            <div class="folder" onclick="filterOrders('work', this)">
+                <h3 id="count-work">0</h3>
+                <span>В работе</span>
+            </div>
+            <div class="folder" onclick="filterOrders('done', this)">
+                <h3 id="count-done">0</h3>
+                <span>Выполнено</span>
+            </div>
+            <div class="folder" onclick="filterOrders('reject', this)">
+                <h3 id="count-reject">0</h3>
+                <span>Отказ</span>
+            </div>
+            <div class="folder" onclick="filterOrders('cancel_client', this)">
+                <h3 id="count-cancel">0</h3>
+                <span>Отказ клиента</span>
+            </div>
+        </div>
+        
+        <div class="orders-grid" id="ordersGrid"></div>
+    </div>
+    
+    <!-- Модалка отклонения -->
+    <div class="reject-modal" id="rejectModal">
+        <div class="modal-box">
+            <h3>❌ Отклонить заявку</h3>
+            <textarea id="rejectReason" placeholder="Обязательно укажите причину отклонения..."></textarea>
+            <button class="btn-submit" onclick="confirmReject()">Отправить отказ</button>
+            <button class="btn-cancel-modal" onclick="closeRejectModal()">Отмена</button>
+        </div>
+    </div>
+    
+    <!-- Модалка чата -->
+    <div class="chat-modal" id="chatModal">
+        <div class="chat-box">
+            <div class="chat-header">
+                <h3 id="chatTitle">Чат</h3>
+                <button class="chat-close" onclick="closeChatModal()">✕</button>
+            </div>
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="typing-indicator" id="typingIndicator">Клиент печатает...</div>
+            <div class="chat-input">
+                <input type="text" id="chatInput" placeholder="Ваше сообщение...">
+                <button onclick="sendAdminMessage()">📤</button>
+                <label for="adminFileInput" style="background:#27ae60;color:#fff;padding:12px 10px;border-radius:8px;cursor:pointer;">📎</label>
+                <input type="file" id="adminFileInput" style="display:none" onchange="sendAdminFile(this)">
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const ADMIN_CREDENTIALS = { login: 'admin', password: 'admin123' };
+        let currentOrderId = null;
+        let currentFilter = 'all';
+        let ordersUpdateInterval = null;
+        let lastOrdersUpdate = 0;
+        let chatUpdateInterval = null;
+        
+        // Проверка авторизации
+        if (localStorage.getItem('adminAuth') === 'true') {
+            showAdminPanel();
+        }
+        
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const login = document.getElementById('login').value;
+            const password = document.getElementById('password').value;
+            
+            if (login === ADMIN_CREDENTIALS.login && password === ADMIN_CREDENTIALS.password) {
+                localStorage.setItem('adminAuth', 'true');
+                localStorage.setItem('adminLoginTime', Date.now().toString());
+                showAdminPanel();
+                showNotification('Добро пожаловать!', 'success');
+            } else {
+                showNotification('Неверный логин или пароль', 'error');
+            }
+        });
+        
+        function showAdminPanel() {
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('adminScreen').classList.add('active');
+            loadOrders();
+            startAutoRefresh();
+            
+            if (!localStorage.getItem('instructionShown')) {
+                document.getElementById('instruction').classList.add('show');
+                localStorage.setItem('instructionShown', 'light');
+            }
+        }
+        
+        function logout() {
+            localStorage.removeItem('adminAuth');
+            localStorage.removeItem('adminLoginTime');
+            stopAutoRefresh();
+            location.reload();
+        }
+        
+        function hideInstruction() {
+            document.getElementById('instruction').classList.remove('show');
+        }
+        
+        function startAutoRefresh() {
+            ordersUpdateInterval = setInterval(() => {
+                checkForNewOrders();
+            }, 3000);
+        }
+        
+        function stopAutoRefresh() {
+            if (ordersUpdateInterval) {
+                clearInterval(ordersUpdateInterval);
+                ordersUpdateInterval = null;
+            }
+            if (chatUpdateInterval) {
+                clearInterval(chatUpdateInterval);
+                chatUpdateInterval = null;
+            }
+        }
+        
+        function checkForNewOrders() {
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            const lastUpdate = parseInt(localStorage.getItem('adminLastOrderUpdate') || '0');
+            
+            const newOrders = orders.filter(o => o.date > lastUpdate);
+            if (newOrders.length > 0) {
+                showNotification(`📦 ${newOrders.length} новых заявок!`, 'info');
+                loadOrders();
+                localStorage.setItem('adminLastOrderUpdate', Date.now().toString());
+            }
+
+            orders.forEach(order => {
+                if (order.status === 'work' && order.chat) {
+                    const chatKey = `adminLastChat_${order.id}`;
+                    const lastChatUpdate = parseInt(localStorage.getItem(chatKey) || '0');
+                    
+                    const latestMessage = order.chat[order.chat.length - 1];
+                    if (latestMessage && latestMessage.time > lastChatUpdate) {
+                        if (latestMessage.from === 'client') {
+                            showNotification(`💬 Новый ответ от ${order.nick}`, 'info');
+                            highlightOrderCard(order.id);
+                        }
+                        
+                        if (currentOrderId === order.id) {
+                            renderChatMessages(order);
+                        }
+                        
+                        localStorage.setItem(chatKey, latestMessage.time.toString());
+                    }
+                }
+            });
+        }
+        
+        function highlightOrderCard(orderId) {
+            const cards = document.querySelectorAll('.order-card');
+            cards.forEach(card => {
+                const title = card.querySelector('h4');
+                if (title && title.textContent.includes(orderId.slice(-6))) {
+                    card.classList.add('new-message');
+                    setTimeout(() => card.classList.remove('new-message'), 3000);
+                }
+            });
+        }
+        
+        function loadOrders(searchQuery = '') {
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            
+            // Фильтрация по запросу
+            let filtered = orders;
+            if (searchQuery) {
+                filtered = orders.filter(o => 
+                    o.nick.toLowerCase().includes(searchQuery) ||
+                    o.email.toLowerCase().includes(searchQuery) ||
+                    o.id.toLowerCase().includes(searchQuery) ||
+                    (o.idea && o.idea.toLowerCase().includes(searchQuery))
+                );
+            }
+
+            // Применяем фильтр папок СВЕРХУ поиска
+            if (currentFilter !== 'all') {
+                filtered = filtered.filter(o => o.status === currentFilter);
+            }
+            
+            updateCounts(orders);
+            renderOrders(filtered);
+            
+            localStorage.setItem('adminLastOrderUpdate', Date.now().toString());
+        }
+        
+        function updateCounts(orders) {
+            document.getElementById('count-all').textContent = orders.length;
+            document.getElementById('count-new').textContent = orders.filter(o => o.status === 'new').length;
+            document.getElementById('count-work').textContent = orders.filter(o => o.status === 'work').length;
+            document.getElementById('count-done').textContent = orders.filter(o => o.status === 'done').length;
+            document.getElementById('count-reject').textContent = orders.filter(o => o.status === 'reject').length;
+            document.getElementById('count-cancel').textContent = orders.filter(o => o.status === 'cancel_client').length;
+        }
+        
+        function filterOrders(filter, element) {
+            currentFilter = filter;
+            document.querySelectorAll('.folder').forEach(f => f.classList.remove('active'));
+            element.classList.add('active');
+            loadOrders();
+        }
+        
+        function getStatusText(status) {
+            const texts = {
+                'new': '📝 Новая',
+                'work': '🔧 В работе',
+                'done': '✅ Выполнено',
+                'cancel': '❌ Отменена',
+                'cancel_client': '👤 Отказ клиента',
+                'reject': '⛔ Отклонено'
+            };
+            return texts[status] || status;
+        }
+        
+        function renderOrders(orders) {
+            const grid = document.getElementById('ordersGrid');
+            let filtered = currentFilter === 'all' ? orders : orders.filter(o => o.status === currentFilter);
+            
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div class="empty-folder">📭 В этой папке нет заявок</div>';
+                return;
+            }
+            
+            grid.innerHTML = filtered.map(order => `
+                <div class="order-card" id="card_${order.id}">
+                    <div class="order-header">
+                        <h4>📦 #${order.id.slice(-6)}</h4>
+                        <span>${getStatusText(order.status)}</span>
+                    </div>
+                    <div class="order-body">
+                        <div class="order-info">
+                            <p><label>🎮 Ник</label><span>${order.nick}</span></p>
+                            <p><label>📱 Телефон</label><span>${order.phone}</span></p>
+                            <p class="full-width"><label>📧 Почта</label><span>${order.email}</span></p>
+                            <p class="full-width"><label>💡 Идея</label><span>${order.idea}</span></p>
+                            <p class="full-width"><label>⚡ Команды</label><span>${order.commands || 'Нет'}</span></p>
+                            ${order.rejectReason ? `<p class="full-width" style="color:#e74c3c"><label>❌ Причина отказа</label><span>${order.rejectReason}</span></p>` : ''}
+                        </div>
+                    </div>
+                    <div class="order-actions">
+                        ${order.status === 'new' ? `
+                            <button class="btn btn-accept" onclick="acceptOrder('${order.id}')">✅ Принять</button>
+                            <button class="btn btn-reject" onclick="openRejectModal('${order.id}')">❌ Отклонить</button>
+                        ` : ''}
+                        ${order.status === 'work' ? `
+                            <button class="btn btn-chat" onclick="openChat('${order.id}')">💬 Чат</button>
+                            <button class="btn btn-done" onclick="completeOrder('${order.id}')">✅ Завершить</button>
+                            <button class="btn btn-return" onclick="returnOrder('${order.id}')">↩️ Вернуть</button>
+                        ` : ''}
+                        ${order.status === 'reject' ? `
+                            <button class="btn btn-return" onclick="returnOrder('${order.id}')">↩️ Вернуть в работу</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        async function acceptOrder(orderId) {
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            const order = orders.find(o => o.id === orderId);
+            
+            if (order) {
+                order.status = 'work';
+                order.chat = order.chat || [];
+                order.chat.push({
+                    from: 'admin',
+                    text: '👋 Привет! Я администратор, приступил к работе над вашей заявкой. Скоро свяжусь с вами!',
+                    time: Date.now()
+                });
+                localStorage.setItem('orders', JSON.stringify(orders));
+                
+                showNotification('Заявка принята!', 'success');
+                
+                await notifyClientAccepted(order, 'Администратор');
+                
+                loadOrders();
+            }
+        }
+        
+        function openRejectModal(orderId) {
+            currentOrderId = orderId;
+            document.getElementById('rejectModal').classList.add('active');
+            document.getElementById('rejectReason').value = '';
+        }
+        
+        function closeRejectModal() {
+            document.getElementById('rejectModal').classList.remove('active');
+            currentOrderId = null;
+        }
+        
+        async function confirmReject() {
+            const reason = document.getElementById('rejectReason').value.trim();
+            if (!reason) {
+                showNotification('Укажите причину отклонения!', 'error');
+                return;
+            }
+            
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            const order = orders.find(o => o.id === currentOrderId);
+            
+            if (order) {
+                order.status = 'reject';
+                order.rejectReason = reason;
+                localStorage.setItem('orders', JSON.stringify(orders));
+                
+                showNotification('Заявка отклонена!', 'success');
+                
+                await notifyOrderRejected(order, reason);
+                
+                closeRejectModal();
+                loadOrders();
+            }
+        }
+        
+        async function completeOrder(orderId) {
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            const order = orders.find(o => o.id === orderId);
+            
+            if (order) {
+                order.status = 'done';
+                localStorage.setItem('orders', JSON.stringify(orders));
+                
+                showNotification('Заявка выполнена!', 'success');
+                
+                await notifyOrderDone(order);
+                
+                loadOrders();
+            }
+        }
+        
+        function returnOrder(orderId) {
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            const order = orders.find(o => o.id === orderId);
+            
+            if (order) {
+                order.status = 'new';
+                localStorage.setItem('orders', JSON.stringify(orders));
+                
+                showNotification('Заявка возвращена!', 'success');
+                loadOrders();
+            }
+        }
+        
+        function openChat(orderId) {
+            currentOrderId = orderId;
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            const order = orders.find(o => o.id === orderId);
+            
+            document.getElementById('chatTitle').textContent = `💬 ${order.nick}`;
+            renderChatMessages(order);
+            document.getElementById('chatModal').classList.add('active');
+            
+            startChatAutoRefresh(orderId);
+        }
+        
+        function startChatAutoRefresh(orderId) {
+            if (chatUpdateInterval) {
+                clearInterval(chatUpdateInterval);
+            }
+            
+            chatUpdateInterval = setInterval(() => {
+                const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+                const order = orders.find(o => o.id === orderId);
+                if (order) {
+                    renderChatMessages(order);
+                }
+            }, 2000);
+        }
+        
+        function renderChatMessages(order) {
+            const container = document.getElementById('chatMessages');
+            const messages = order.chat || [];
+            
+            const isScrolledToBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+            
+            container.innerHTML = messages.map(m => `
+                <div class="message ${m.from}">
+                    ${m.text}
+                    <small>${new Date(m.time).toLocaleString('ru-RU')}</small>
+                </div>
+            `).join('');
+            
+            if (isScrolledToBottom) {
+                container.scrollTop = container.scrollHeight;
+            }
+            
+            const chatKey = `adminLastChat_${order.id}`;
+            const latestMessage = messages[messages.length - 1];
+            if (latestMessage) {
+                localStorage.setItem(chatKey, latestMessage.time.toString());
+            }
+        }
+        
+        function closeChatModal() {
+            document.getElementById('chatModal').classList.remove('active');
+            currentOrderId = null;
+            
+            if (chatUpdateInterval) {
+                clearInterval(chatUpdateInterval);
+                chatUpdateInterval = null;
+            }
+        }
+        
+        async function sendAdminMessage() {
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if (!text) return;
+            
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            const order = orders.find(o => o.id === currentOrderId);
+            
+            if (order) {
+                order.chat = order.chat || [];
+                order.chat.push({ from: 'admin', text, time: Date.now() });
+                localStorage.setItem('orders', JSON.stringify(orders));
+                
+                renderChatMessages(order);
+                input.value = '';
+                
+                await notifyChatMessage(order, 'Администратор', text);
+            }
+        }
+        
+        document.getElementById('chatInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') sendAdminMessage();
+        });
+        
+        function showNotification(message, type = 'info') {
+            const notif = document.createElement('div');
+            notif.className = `notification ${type}`;
+            notif.textContent = message;
+            document.body.appendChild(notif);
+            setTimeout(() => notif.remove(), 3000);
+        }
+        
+        // --- ЛОГИКА ТЕМЫ ---
+        function toggleTheme() {
+            document.body.classList.toggle('light-theme');
+            const isLight = document.body.classList.contains('light-theme');
+            localStorage.setItem('adminTheme', isLight ? 'light' : 'dark');
+        }
+        
+        // Восстанавливаем тему при загрузке
+        if (localStorage.getItem('adminTheme') === 'light') {
+            document.body.classList.add('light-theme');
+        }
+        
+        // --- ЛОГИКА ПОИСКА ---
+        document.getElementById('searchInput').addEventListener('input', function(e) {
+            const query = e.target.value.toLowerCase();
+            loadOrders(query);
+        });
+        
+        // --- ЛОГИКА ЭКСПОРТА ---
+        function exportData() {
+            const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(orders, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "orders_backup_" + new Date().toISOString().slice(0,10) + ".json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+            showNotification('📦 Данные успешно экспортированы!', 'success');
+        }
+        
+        // ... существующий код ...
+        
+        // Обновляем функцию loadOrders для поддержки поиска
+        // (функция уже обновлена выше)
+        
+        // ... остальной код ...
+    </script>
+    <script> {
+        console.error('Ошибка загрузки заявок:', error);
+        showNotification('❌ Ошибка при загрузке заявок', 'error');
+    }
+
+
+async function acceptOrder(orderId) {
+    try {
+        // Обновляем статус в Firebase
+        await updateOrderInFirebase(orderId, { 
+            status: 'work',
+            chat: [{
+                from: 'admin',
+                text: '👋 Привет! Я администратор, приступил к работе над вашей заявкой. Скоро свяжусь с вами!',
+                time: Date.now()
+            }]
+        });
+        
+        // Остальная логика без изменений
+        // ...
+    } catch (error) {
+        console.error('Ошибка принятия заявки:', error);
+        showNotification('❌ Ошибка при принятии заявки', 'error');
+    }
+}
+
+// Аналогично обновите все функции изменения заявок
+</script>
+</body>
+</html>
